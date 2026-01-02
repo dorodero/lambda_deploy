@@ -1,0 +1,55 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Simple Lambda function with requests layer
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+    Runtime: python3.11
+
+Resources:
+  RequestsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "${Environment}-requests-layer"
+      Description: Layer containing requests library
+      ContentUri: ../requests-layer.zip
+      CompatibleRuntimes:
+        - python3.11
+      CompatibleArchitectures:
+        - x86_64
+
+  SimpleLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-simple-lambda"
+      CodeUri: ../src/lambda/
+      Handler: lambda_function.lambda_handler
+      Layers:
+        - !Ref RequestsLayer
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+
+Outputs:
+  LambdaFunction:
+    Description: Lambda Function ARN
+    Value: !GetAtt SimpleLambdaFunction.Arn
+    Export:
+      Name: !Sub "${Environment}-simple-lambda-arn"
+
+  RequestsLayer:
+    Description: Requests Layer ARN
+    Value: !Ref RequestsLayer
+    Export:
+      Name: !Sub "${Environment}-requests-layer-arn"

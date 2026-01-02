@@ -1,0 +1,122 @@
+name: Deploy Lambda Function and Layer
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Calculate requirements hash
+        id: req-hash
+        run: |
+          REQ_HASH=$(sha256sum src/lambda/requirements.txt | cut -d' ' -f1)
+          echo "hash=$REQ_HASH" >> $GITHUB_OUTPUT
+          echo "Requirements hash: $REQ_HASH"
+
+      - name: Cache Lambda layer
+        id: layer-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            requests-layer.zip
+            .layer_hash
+          key: lambda-layer-${{ steps.req-hash.outputs.hash }}
+          restore-keys: |
+            lambda-layer-
+
+      - name: Create Lambda layer
+        run: |
+          chmod +x ./scripts/create_layer.sh
+          ./scripts/create_layer.sh
+
+      - name: Build SAM application
+        run: |
+          sam build --template-file infrastructure/template.yaml
+
+      - name: Deploy SAM application
+        run: |
+          sam deploy \
+            --stack-name lambda-deploy-${{ steps.env.outputs.environment }} \
+            --parameter-overrides Environment=${{ steps.env.outputs.environment }} \
+            --capabilities CAPABILITY_IAM \
+            --role-arn ${{ secrets.CLOUDFORMATION_ROLE_ARN }} \
+            --region ${{ env.AWS_REGION }} \
+            --resolve-s3 \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Get Lambda function ARN
+        id: lambda
+        run: |
+          FUNCTION_ARN=$(aws cloudformation describe-stacks \
+            --stack-name lambda-deploy-${{ steps.env.outputs.environment }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`LambdaFunction`].OutputValue' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+          echo "function-arn=$FUNCTION_ARN" >> $GITHUB_OUTPUT
+          echo "Lambda Function ARN: $FUNCTION_ARN"
+
+      - name: Test Lambda function
+        run: |
+          aws lambda invoke \
+            --function-name ${{ steps.lambda.outputs.function-arn }} \
+            --payload '{"url": "https://httpbin.org/json"}' \
+            --cli-binary-format raw-in-base64-out \
+            --region ${{ env.AWS_REGION }} \
+            response.json
+          cat response.json
