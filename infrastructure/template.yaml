@@ -40,6 +40,23 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /request
+            Method: post
+            RestApiId: !Ref ApiGateway
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${Environment}-simple-api"
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'POST, GET, OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
 
 Outputs:
   LambdaFunction:
@@ -53,3 +70,9 @@ Outputs:
     Value: !Ref RequestsLayer
     Export:
       Name: !Sub "${Environment}-requests-layer-arn"
+
+  ApiGatewayUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/request"
+    Export:
+      Name: !Sub "${Environment}-api-gateway-url"

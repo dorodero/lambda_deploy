@@ -107,6 +107,26 @@ test: ## Test Lambda function
 local-test: build ## Test Lambda function locally
 	sam local invoke SimpleLambdaFunction -e tests/test-event.json -t .aws-sam/build/template.yaml
 
+api-url: ## Show API Gateway URL
+	@API_URL=$$(aws cloudformation describe-stacks \
+		--stack-name $(STACK_NAME) \
+		--query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' \
+		--output text \
+		--region $(AWS_REGION) $(AWS_PROFILE_FLAG)); \
+	echo "API Gateway URL: $$API_URL"
+
+test-api: ## Test API Gateway endpoint
+	@API_URL=$$(aws cloudformation describe-stacks \
+		--stack-name $(STACK_NAME) \
+		--query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' \
+		--output text \
+		--region $(AWS_REGION) $(AWS_PROFILE_FLAG)); \
+	echo "Testing API Gateway: $$API_URL"; \
+	echo ""; \
+	curl -X POST "$$API_URL" \
+		-H "Content-Type: application/json" \
+		-d '{"url": "https://httpbin.org/json"}' | python3 -m json.tool
+
 clean: ## Clean build artifacts
 	rm -rf .aws-sam/
 	rm -rf layer/

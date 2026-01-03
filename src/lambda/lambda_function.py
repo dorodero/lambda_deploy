@@ -4,12 +4,23 @@ import requests
 def lambda_handler(event, context):
     """
     シンプルなLambda関数 - HTTPリクエストを送信してレスポンスを返す
+    API Gateway経由と直接呼び出しの両方に対応
     """
     try:
+        # API Gateway経由の場合、bodyをパース
+        if 'body' in event and isinstance(event['body'], str):
+            try:
+                body = json.loads(event['body'])
+            except json.JSONDecodeError:
+                body = {}
+        else:
+            # 直接呼び出しの場合
+            body = event
+
         # HTTPリクエストを送信
-        url = event.get('url', 'https://httpbin.org/json')
+        url = body.get('url', 'https://httpbin.org/json')
         response = requests.get(url, timeout=10)
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps({
